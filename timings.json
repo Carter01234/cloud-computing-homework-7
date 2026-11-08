@@ -1,0 +1,33 @@
+{
+  "requests": 1,
+  "operations": {
+    "extract_request_info": {
+      "count": 1,
+      "total_s": 0.000156291,
+      "mean_ms": 0.156291,
+      "min_ms": 0.156291,
+      "max_ms": 0.156291
+    },
+    "get_file_from_bucket": {
+      "count": 1,
+      "total_s": 0.927118375,
+      "mean_ms": 927.118375,
+      "min_ms": 927.118375,
+      "max_ms": 927.118375
+    },
+    "send_response": {
+      "count": 1,
+      "total_s": 0.000459625,
+      "mean_ms": 0.459625,
+      "min_ms": 0.459625,
+      "max_ms": 0.459625
+    },
+    "write_to_database": {
+      "count": 1,
+      "total_s": 0.970853125,
+      "mean_ms": 970.853125,
+      "min_ms": 970.853125,
+      "max_ms": 970.853125
+    }
+  }
+}
