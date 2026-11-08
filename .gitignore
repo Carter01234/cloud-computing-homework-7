@@ -7,3 +7,7 @@ __pycache__/
 
 # Local virtual environment
 .venv/
+
+# Pipeline outputs and logs
+output/
+output-*.log

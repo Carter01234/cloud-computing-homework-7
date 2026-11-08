@@ -1,0 +1,2 @@
+# Beam 2.73+ supports Python 3.10-3.14; the [gcp] extra adds GCS + Dataflow support.
+apache-beam[gcp]>=2.76.0
