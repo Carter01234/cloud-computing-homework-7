@@ -1,0 +1,10 @@
+{
+  "FnApiRunner": {
+    "seconds": 309.5,
+    "finished": "2026-11-08 12:23:56"
+  },
+  "DataflowRunner": {
+    "seconds": 680.4,
+    "finished": "2026-11-08 13:59:23"
+  }
+}

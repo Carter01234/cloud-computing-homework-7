@@ -7,7 +7,7 @@ One Beam pipeline (`hw7_pipeline.py`) reads every page in
 2. the 5 pages with the most **outgoing** links,
 3. the 5 most frequent **word trigrams**.
 
-The same code runs on the laptop (DirectRunner) and on Cloud Dataflow
+The same code runs on the laptop (Beam's local `FnApiRunner`, one thread per CPU core) and on Cloud Dataflow
 (DataflowRunner); only the pipeline options differ.
 
 ## Files
@@ -17,7 +17,7 @@ The same code runs on the laptop (DirectRunner) and on Cloud Dataflow
 | `hw7_pipeline.py` | The Beam pipeline |
 | `config.sh` | Project, region, bucket and service-account names |
 | `setup.sh` | Enables APIs, creates `homework7-service-account`, grants roles, builds `.venv` |
-| `run_local.sh` | Runs on the laptop, prints results, saves `output-local.log` |
+| `run_local.sh` | Runs on the laptop with `FnApiRunner` (see note in the script), prints results, saves `output-local.log` |
 | `run_dataflow.sh` | Runs on Dataflow, prints results, saves `output-dataflow.log` |
 | `timings.json` | Runtime of the latest run on each runner (written by the pipeline) |
 
@@ -57,16 +57,18 @@ Dataflow → Jobs. Dataflow results are also written to
 ## How the pipeline works
 
 ```
-MatchFiles(pages/*.html) → Reshuffle → ReadMatches → (page, html)
+MatchFiles(pages/*.html) → Reshuffle → ReadPage → (page, html)
    ├─ FlatMap(extract_links) → distinct (source, target) edges
    │    ├─ key by source → CombinePerKey(sum) → Top 5   (outgoing)
    │    └─ key by target → CombinePerKey(sum) → Top 5   (incoming)
    └─ FlatMap(extract_trigrams) → Count.PerElement → Top 5   (trigrams)
 ```
 
-- **Reading:** `fileio.MatchFiles` lists the pages and `ReadMatches` reads each
-  one, keeping its file name (needed to know a link's source). `Reshuffle`
-  spreads the file list across Dataflow workers before reading.
+- **Reading:** `fileio.MatchFiles` lists the pages, `Reshuffle` spreads the
+  list across workers, and the `ReadPage` DoFn reads each one, keeping its file
+  name (needed to know a link's source). `ReadPage` creates one GCS client per
+  worker and reuses it; Beam's built-in `ReadMatches` opens a new client per
+  file, which ran the laptop out of file descriptors on 10,000 pages.
 - **Links:** a regex finds every `<a href="...">`. Each distinct
   (source, target) pair is one edge; a page that links to the same target twice
   counts once.

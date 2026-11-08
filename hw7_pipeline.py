@@ -7,7 +7,7 @@ gs://html-files-for-class/pages/) and computes, in a single Beam pipeline:
   2. the 5 pages with the most outgoing links,
   3. the 5 most frequent word trigrams (three consecutive words).
 
-The same code runs locally (DirectRunner) or on Google Cloud Dataflow
+The same code runs locally (FnApiRunner) or on Google Cloud Dataflow
 (DataflowRunner); only the pipeline options differ. See run_local.sh and
 run_dataflow.sh.
 
@@ -45,10 +45,36 @@ def page_name(path):
     return posixpath.basename(path)
 
 
-def read_page(readable_file):
-    """fileio.ReadableFile -> (page name, html text)."""
-    name = page_name(readable_file.metadata.path)
-    return name, readable_file.read().decode("utf-8", errors="replace")
+class ReadPage(beam.DoFn):
+    """File metadata -> (page name, html text).
+
+    Beam's built-in ReadMatches builds a brand-new GCS client (with its own
+    connection pool and credentials) for every file it opens. Over 10,000
+    pages that exhausts the laptop's file descriptors, which surfaces as DNS
+    errors. Instead, each worker creates one GCS client in setup() and reuses
+    it, and every file is closed as soon as it has been read.
+    """
+
+    def __init__(self, options_dict):
+        self._options_dict = options_dict
+        self._gcs = None
+
+    def setup(self):
+        self._gcs = None  # created lazily, only if a gs:// path shows up
+
+    def process(self, metadata):
+        path = metadata.path
+        if path.startswith("gs://"):
+            if self._gcs is None:
+                from apache_beam.io.gcp import gcsio
+                self._gcs = gcsio.GcsIO(
+                    pipeline_options=PipelineOptions.from_dictionary(self._options_dict))
+            with self._gcs.open(path) as f:
+                data = f.read()
+        else:
+            with FileSystems.open(path) as f:
+                data = f.read()
+        yield page_name(path), data.decode("utf-8", errors="replace")
 
 
 def extract_links(page):
@@ -81,14 +107,28 @@ def format_top(title, top_list):
 
 
 # ---------------------------------------------------------------- pipeline
-def build_pipeline(p, input_pattern, output_dir):
+def worker_options_dict(options):
+    """Options for ReadPage's GCS client, as a plain dict.
+
+    On Dataflow the worker VMs already run as the service account
+    (--service_account_email), so the laptop's --impersonate_service_account
+    setting must not travel with them: the account would try to impersonate
+    itself and get a 403 (iam.serviceAccounts.getAccessToken). Locally the
+    setting is kept so the laptop reads the bucket as the service account.
+    """
+    opts = dict(options.get_all_options())
+    if "Dataflow" in str(opts.get("runner") or ""):
+        opts.pop("impersonate_service_account", None)
+    return opts
+
+
+def build_pipeline(p, options, input_pattern, output_dir):
     pages = (
         p
         | "MatchPages" >> fileio.MatchFiles(input_pattern)
         # Spread the file list across workers before reading (matters on Dataflow).
         | "Redistribute" >> beam.Reshuffle()
-        | "ReadPages" >> fileio.ReadMatches()
-        | "ToNameAndHtml" >> beam.Map(read_page)
+        | "ReadPages" >> beam.ParDo(ReadPage(worker_options_dict(options)))
     )
 
     links = pages | "ExtractLinks" >> beam.FlatMap(extract_links)
@@ -161,7 +201,7 @@ def main(argv=None):
     print(f"Runner: {runner}\nInput:  {known.input}\nOutput: {known.output}\n")
     start = time.perf_counter()
     p = beam.Pipeline(options=options)
-    result_names = build_pipeline(p, known.input, known.output)
+    result_names = build_pipeline(p, options, known.input, known.output)
     p.run().wait_until_finish()
     elapsed = time.perf_counter() - start
 
